@@ -5,8 +5,24 @@ use nom::{IResult};
 use nom::bytes::complete::tag;
 use nom::branch::alt;
 use nom::multi::many0;
-use nom::error::{make_error};
+use nom::error::{ErrorKind, ParseError};
+use nom::Err::*;
 
+pub enum BfParseErr<I> {
+    SyntaxError(String),
+    Unimplemented,
+    NomError(I, ErrorKind)
+}
+
+impl<I> ParseError<I> for BfParseErr<I>{
+    fn from_error_kind(input: I, kind: ErrorKind) -> Self {
+        BfParseErr::NomError(input, kind)
+    }
+
+    fn append(_: I, _: ErrorKind, other: Self) -> Self{
+        other
+    }
+}
 
 pub enum Statement{
     Loop(Vec<Statement>),
@@ -38,37 +54,38 @@ impl Statement{
     }
 }
 
-fn inst(input:&[u8]) -> IResult<&[u8], Statement>{
-    let res :IResult<&[u8],&[u8]> = alt((tag(">"), tag("<"), tag("+"), tag("-"), tag("."), tag(",")))(input);
+fn inst(input:&[u8]) -> IResult<&[u8], Statement, BfParseErr<&[u8]>>{
+    let res :IResult<&[u8],&[u8], BfParseErr<&[u8]>> = alt((tag(">"), tag("<"), tag("+"), tag("-"), tag("."), tag(",")))(input);
     match res{
         Ok((rest, b">"))  => Ok((rest, Statement::PtrIncr)),
         Ok((rest, b"<"))  => Ok((rest, Statement::PtrDecr)),
         Ok((rest, b"+"))  => Ok((rest, Statement::Incr)),
         Ok((rest, b"-"))  => Ok((rest, Statement::Decr)),
         Ok((rest, b"."))  => Ok((rest, Statement::PutChar)),
-        Ok((_, b","))  => Err(nom::Err::Failure(make_error(input, nom::error::ErrorKind::Digit))),
-        Err(_)                  => Err(nom::Err::Error(make_error(input, nom::error::ErrorKind::Digit))),
-        _                       => Err(nom::Err::Failure(make_error(input, nom::error::ErrorKind::Digit))),
+        Ok((_, b","))           => Err(Failure(BfParseErr::Unimplemented)),
+        Err(err)=>Err(err),
+        _                       => Err(Failure(BfParseErr::SyntaxError(String::from("A")))),
     }
 }
 
-fn closure(input: &[u8]) -> IResult<&[u8], &[u8]> {
+fn closure(input: &[u8]) -> IResult<&[u8], &[u8], BfParseErr<&[u8]>> {
     let res = tag("]")(input);
     match res{
         Ok(_) => res,
-        Err(_) => Err(nom::Err::Failure(make_error(input, nom::error::ErrorKind::Digit))),
+        Err(_) => Err(Failure(BfParseErr::SyntaxError(String::from("Parenthesis not matched")))),
     }
 }
-fn stmt(input: &[u8]) -> IResult<&[u8], Statement>{
+
+fn stmt(input: &[u8]) -> IResult<&[u8], Statement, BfParseErr<&[u8]>>{
     // If it is simple instructions
-    let res:IResult<&[u8], Statement> = inst(input);
+    let res:IResult<&[u8], Statement, BfParseErr<&[u8]>> = inst(input);
     if let Ok((_,ref taken)) = res {
         println!("char taken:{}", taken.to_string());
         return res;
     }
 
     
-    let res = delimited(tag("["), stmts, closure)(input);
+    let res :IResult<&[u8], Vec<Statement>, BfParseErr<&[u8]>> = delimited(tag("["), stmts, closure)(input);
 
     match res{
         Err(e) => Err(e),
@@ -76,6 +93,6 @@ fn stmt(input: &[u8]) -> IResult<&[u8], Statement>{
     }
 }
 
-pub fn stmts(input: &[u8]) -> IResult<&[u8], Vec<Statement>>{
+pub fn stmts(input: &[u8]) -> IResult<&[u8], Vec<Statement>, BfParseErr<&[u8]>>{
     many0(stmt)(input)
 }
